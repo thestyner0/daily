@@ -2,7 +2,7 @@
 """Daily 대시보드 빌드 도구.
 
   python3 build.py extract          # app.enc → src/app.html, src/data.json (비밀번호 필요)
-  python3 build.py build            # src/ → app.enc (암호화)
+  python3 build.py build            # src/ → app.enc (사이트, 암호화) + dist/artifact.html (Claude 아티팩트) + snapshot.json(식단 최신본)
 
 비밀번호는 환경변수 DAILY_PW 로 받습니다. 원본(src/)은 저장소에 커밋하지 않습니다(.gitignore).
 """
@@ -23,7 +23,31 @@ def key(pw, salt):
     return PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=ITER).derive(pw.encode())
 
 
+def refresh_menu():
+    """식단 저장본을 원본 저장소 최신으로 (실패하면 기존 것 유지)."""
+    import urllib.request
+    try:
+        html = urllib.request.urlopen("https://raw.githubusercontent.com/iamguno/smc-weekly-menu/main/index.html", timeout=20).read().decode()
+        m = re.search(r'<script id="meal-data" type="application/json">(.*?)</script>', html, re.S)
+        json.loads(m.group(1))
+        (ROOT / "snapshot.json").write_text(m.group(1), encoding="utf-8")
+        print("snapshot.json refreshed")
+    except Exception as e:
+        print("snapshot refresh skipped:", e)
+
+
+def artifact_html(tpl, dj):
+    """같은 원본으로 Claude 아티팩트용 페이지(스켈레톤 태그 제거)를 만든다."""
+    a = tpl.replace("/*DATA*/", dj)
+    a = re.sub(r"<!DOCTYPE html>\s*|</?html[^>]*>\s*|</?head>\s*|</?body>\s*", "", a)
+    a = re.sub(r'<meta [^>]*>\s*|<link rel="(manifest|apple-touch-icon)"[^>]*>\s*', "", a)
+    a = a.replace("<title>Daily</title>", "<title>서초 데일리</title>")
+    a = a.replace("</style>", "header{top:env(safe-area-inset-top,0px);padding-top:10px}\n</style>", 1)
+    return a
+
+
 def build(pw):
+    refresh_menu()
     tpl = (SRC / "app.html").read_text(encoding="utf-8")
     data = json.loads((SRC / "data.json").read_text(encoding="utf-8"))
     dj = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
@@ -31,6 +55,8 @@ def build(pw):
     html = tpl.replace("/*DATA*/", dj)
     # 템플릿 원본을 같이 넣어 두어 extract 로 되살릴 수 있게 함
     html += "\n" + MARK_A + base64.b64encode(tpl.encode()).decode() + MARK_B + "\n"
+    (ROOT / "dist").mkdir(exist_ok=True)
+    (ROOT / "dist" / "artifact.html").write_text(artifact_html(tpl, dj), encoding="utf-8")
     salt, iv = os.urandom(16), os.urandom(12)
     ct = AESGCM(key(pw, salt)).encrypt(iv, html.encode(), None)
     b = lambda x: base64.b64encode(x).decode()
