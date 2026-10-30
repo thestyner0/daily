@@ -42,6 +42,7 @@ def artifact_html(tpl, dj):
     a = re.sub(r"<!DOCTYPE html>\s*|</?html[^>]*>\s*|</?head>\s*|</?body>\s*", "", a)
     a = re.sub(r'<meta [^>]*>\s*|<link rel="(manifest|apple-touch-icon)"[^>]*>\s*', "", a)
     a = a.replace("<title>Daily</title>", "<title>서초 데일리</title>")
+    a = a.replace('<script id="daily-data"', '<script>window.__DA=1</script>\n<script id="daily-data"', 1)
     a = a.replace("</style>", "header{top:env(safe-area-inset-top,0px);padding-top:10px}\n</style>", 1)
     return a
 
